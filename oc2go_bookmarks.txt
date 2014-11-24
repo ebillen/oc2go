@@ -1,0 +1,17 @@
+# Sample bookmark list file for oc2go.pl
+# All lines starting with '#' are ignored
+# First word of a line is interpreted as OC-cache-code
+# All further words of a line are ignored
+OC11719 Sommerrodel-Safari
+OC116B4 Dosen und Pilze finden
+OC11698 Schifffahrtszeichen
+OC11681 Stillgelegte Brücken
+OCFCFF  Ereigniswälder
+OCDF0E  Angelteich-Safari
+OC1165B Seilbahn-Safari
+OC115A9 Höhen-Safari
+OC115A7 Wie ist das Safari-Wetter
+OC1141D Hängebrücken-Safari
+OC11551 Panzer am Wegesrand
+OC112F8 Staudamm-Safari
+OC10356 OC-Talk "Safari"
