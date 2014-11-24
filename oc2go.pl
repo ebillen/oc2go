@@ -22,8 +22,29 @@ my $oc2go;
 my $bookmarkfile;
 my $zipfile;
 
-$CONFIGDIR = File::HomeDir->my_home . "/.oc2go";
-$AUTHCONFIG = $CONFIGDIR . "/oc2go_auth.cfg";
+# Are we using Windows or a real operating system?
+my $DIRSEP;
+my $ZIP;
+my $ZIPARGS;
+
+if ($^O eq "linux") {
+    # running on linux...
+    $DIRSEP = '/';
+    $ZIP = "zip";
+    $ZIPARGS = " -q -j ";
+}
+elsif ($^O eq "MSWin32") {
+    # running on Windows...
+    $DIRSEP = '\\';
+    $ZIP = "7z.exe";
+    $ZIPARGS = " a ";
+}
+else {
+    die "Unsupported operating system ($^O)\n";
+}
+
+$CONFIGDIR = File::HomeDir->my_home . $DIRSEP . ".oc2go";
+$AUTHCONFIG = $CONFIGDIR . $DIRSEP . "oc2go_auth.cfg";
 
 # default values for input/output files:
 $bookmarkfile="oc2go_bookmarks.txt";
@@ -86,7 +107,8 @@ sub oc2go_download_caches {
 	next if $line =~ /^$/;    # skip empty lines
 	($occachecode) = ($line =~ /\A(.*?) /);
 
-	my $localfile = $CONFIGDIR . "/wrk/" . $occachecode . ".gpx";
+	my $localfile = $CONFIGDIR . $DIRSEP . 
+	    "wrk" . $DIRSEP . $occachecode . ".gpx";
 
 	# download only, if local cache download is older than 1 day:
 	my $now = time;
@@ -115,7 +137,7 @@ sub oc2go_download_caches {
     
 	# add result to zip file:
 	print "zipping $occachecode...";
-	system ("zip -q -j " . $zipfile . " " . $localfile);
+	system ($ZIP . $ZIPARGS . $zipfile . " " . $localfile);
 	print "done.\n";
 
 	# just be nice to the okapi server:
@@ -179,29 +201,32 @@ sub oc2go_install {
     printf "Setting up directories and config file for oc2go.pl...\n";
 
     # create directory for config file etc., if needed:
-#    $CONFIGDIR = File::HomeDir->my_home . "/.oc2go";
     if (-e $CONFIGDIR) {
 	print "Configuration directory $CONFIGDIR already exists - ok.\n";
     }
     else {
-	eval { File::Path->make_path($CONFIGDIR) };
-	if ($@) {
-	    print "Fatal: could not create configuration directory " . $CONFIGDIR . "!\n";
-	    exit 1;
+	unless (mkdir $CONFIGDIR)  {
+	    die "Fatal: could not create config directory " . $CONFIGDIR;
 	}
+	
 	print "Created configuration directory $CONFIGDIR - ok.\n";
-	eval { File::Path->make_path($CONFIGDIR . "/wrk") };
-	if ($@) {
-	    print "Fatal: could not create configuration directory " . $CONFIGDIR . "/wrk!\n";
-	    exit 1;
-	}
-	print "Created work directory $CONFIGDIR/wrk - ok.\n";
-    }
 
+    }
+    # create working directory:
+    my $WRKDIR = $CONFIGDIR . $DIRSEP . "wrk";
+    if (-e $WRKDIR) {
+	print "Working directory $WRKDIR already exists - ok.\n";
+    }
+    else {
+	unless (mkdir $WRKDIR) {
+	    die "Fatal: could not create working directory " . $WRKDIR;
+	}
+	print "Created work directory $WRKDIR - ok.\n";
+    }
+    
 
 
     # does the auth config file exist?
-#    $AUTHCONFIG = $CONFIGDIR . "/oc2go_auth.cfg";
     if (-e $AUTHCONFIG) {
 	print "Authorization config file $AUTHCONFIG already exists - ok.\n";
     }
