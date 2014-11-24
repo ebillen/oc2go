@@ -1,8 +1,6 @@
 #!/usr/bin/perl -w
 
 
-
-
 # Use "cpan -i <module_name>" to install any missing modules together with their dependencies...
 # When installed locally (as desktop user, not as root), you might have to set 
 # PERL5LIB to help perl locating the modules:
@@ -87,14 +85,29 @@ sub oc2go_download_caches {
 	next if $line =~ /^#/;    # skip comment lines
 	next if $line =~ /^$/;    # skip empty lines
 	($occachecode) = ($line =~ /\A(.*?) /);
+
+	my $localfile = $CONFIGDIR . "/wrk/" . $occachecode . ".gpx";
+
+	# download only, if local cache download is older than 1 day:
+	my $now = time;
+	my @stat = stat($localfile);
+
+	if (-r $localfile) {
+	    my $age_in_days = ($now - $stat[9])/86400;
+	    if ($age_in_days < 1.0) {
+		print "skipped $occachecode (last download was less then 24h ago)\n";
+		next;
+	    }
+	}
+
 	print "Trying to download " . $occachecode . "...\n";
 	
 	# download cache:
 	my $occache=$oc2go->download_gpx($occachecode);
 
 	# write cache to file:
-	open(my $fh, ">", $CONFIGDIR . "/wrk/" . $occachecode . ".gpx") or
-	    die "Could not open " . $CONFIGDIR . "/wrk/" . $occachecode . ".gpx for writing\n" . $!;
+	open(my $fh, ">", $localfile) or
+	    die "Could not open " . $localfile . " for writing\n" . $!;
 	print $fh $occache;
 	close $fh;
 
@@ -102,7 +115,7 @@ sub oc2go_download_caches {
     
 	# add result to zip file:
 	print "zipping $occachecode...";
-	system ("zip -q -j " . $zipfile . " " . $CONFIGDIR . "/wrk/" . $occachecode . ".gpx");
+	system ("zip -q -j " . $zipfile . " " . $localfile);
 	print "done.\n";
 
 	# just be nice to the okapi server:
@@ -201,8 +214,6 @@ sub oc2go_install {
 	# write the consumer_key and consumer_secret for oc2go to the config file:
 	print $fh "consumer_key        = ZdVngbd6efEym7kUgmRE\n";
 	print $fh "consumer_secret     = FJZCUcpPKVDBYqP7sS4wXyUaw6UCgB7NbXfVZvAB\n";
-#	print $fh "consumer_key        = ezeJuTE2trZMzhHjunhu\n";
-#	print $fh "consumer_secret     = xE7VRpStT5aXveyNX3EgjwUHDuSXFZg3wdPcsywa\n";
 	close $fh;
 	print "Config file created.\n\n";
     }
