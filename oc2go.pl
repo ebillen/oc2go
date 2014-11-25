@@ -7,7 +7,6 @@
 # export PERL5LIB=~/perl5/lib/perl5/
 use strict;
 use lib qw(lib);
-use File::chmod;
 use File::HomeDir;
 use File::Path;
 use Getopt::Std;
@@ -15,12 +14,13 @@ use Getopt::Std;
 
 # global variables:
 
+my %Cfg;  # to hold settings from config file
+my $VERSION="oc2go version 0.03";
 my $CONFIGDIR;
 my $AUTHCONFIG;
+my $CONFIGFILE;
 my %tokens=();
 my $oc2go;
-my $bookmarkfile;
-my $zipfile;
 
 # Are we using Windows or a real operating system?
 my $DIRSEP;
@@ -45,10 +45,32 @@ else {
 
 $CONFIGDIR = File::HomeDir->my_home . $DIRSEP . ".oc2go";
 $AUTHCONFIG = $CONFIGDIR . $DIRSEP . "oc2go_auth.cfg";
+$CONFIGFILE = $CONFIGDIR . $DIRSEP . "oc2go.cfg";
 
-# default values for input/output files:
-$bookmarkfile="oc2go_bookmarks.txt";
-$zipfile="oc2go_caches.zip";
+# Get configuration for this script.
+# * first, set some default parameters.
+# * next, try to read the config file. Entries in
+#   the config file will overwrite the default parameters.
+# * finally, parse the command line options.
+oc2go_getconfig();
+
+
+# print some nice logo and ascii art:
+# source for the ascii art:
+# http://wwwkammerl.de/ascii/AsciiSignature.php
+# print "==============================================\n";
+print "\n";
+print "                  d8888b.                     \n";
+print "                      `88                     \n";
+print ".d8888b. .d8888b. .aaadP' .d8888b. .d8888b.   \n";
+print "88'  `88 88'  `\"\" 88'     88'  `88 88'  `88   \n";
+print "88.  .88 88.  ... 88.     88.  .88 88.  .88   \n";
+print "`88888P' `88888P' Y88888P `8888P88 `88888P'   \n";
+print "ooooooooooooooooooooooooooo~~~~.88~ooooooooo  \n";
+print "                           d8888P             \n\n";
+# print "==============================================\n\n";
+print "This is " . $VERSION . "\n\n";
+
 
 # parse command line options:
 my %options=();
@@ -60,7 +82,11 @@ if (defined $options{h}) {
     exit 0;
 }
 
-if (defined $options{i}) {
+if (defined $options{i} || ! -e $AUTHCONFIG) {
+    # Option "-i" => explicit "installation" wanted
+    # No $AUTHCONFIG found => first call of this script? => "installation"
+    #
+    # Try to create 
     # setup directories and configuration file(s) (if needed),
     # authorize to opencaching.de (if needed),
     # then exit.
@@ -72,8 +98,8 @@ if (defined $options{i}) {
 
 if (defined $options{f}) {
     # file name for bookmark list defined at the command line
-    $bookmarkfile=$options{f};
-    print "using $bookmarkfile for input...\n";
+    $Cfg{'bookmarkfile'} = $options{f};
+#    print "using " . $Cfg{'bookmarkfile'} . " for input...\n";
 }
 
 
@@ -92,12 +118,108 @@ exit 0;
 ######################################################################
 # some subroutines:
 
+sub oc2go_getconfig {
+# Get configuration for this script.
+# * first, set some default parameters.
+# * next, try to read the config file. Entries in
+#   the config file will overwrite the default parameters.
+# * finally, parse the command line options.
+
+# If there is no configuration file, create a sample file.
+
+    # default settings:
+    # parameters for the OKAPI gpx formatter.
+    # see here:
+    # http://www.opencaching.de/okapi/services/caches/formatters/gpx.html
+    # for a documentation.
+    $Cfg{'langpref'}               = 'de';
+    $Cfg{'trackables'}             = 'desc:list';
+    $Cfg{'protection_areas'}       = 'desc:text';
+    $Cfg{'images'}                 = 'descrefs:all';
+    $Cfg{'recommendations'}        = 'desc:count';
+    $Cfg{'location_source'}        = 'alt_wpt:user-coords';
+    $Cfg{'location_change_prefix'} = '(Solved)';
+
+    # Minimal age (in hours) for a geocache, befor it will be downloaded again.
+    # If the last download is less than 'minage' hours ago, 
+    # the geocache will be skipped.
+    $Cfg{'minage'} = 24;
+
+    # default filename for bookmark file:
+    $Cfg{'bookmarkfile'} = 'oc2go_bookmarks.txt';
+    # default filename for zip file:
+    $Cfg{'zipfile'} = 'oc2go_caches.zip';
+    
+    # create sample config file, if it does not exist..
+    unless (-e $CONFIGFILE) {
+	print "Info: no configuration file . " . $CONFIGFILE . " found.\n";
+	print "This is not a problem.\n";
+	print "I will create a sample configuration file for you.\n";
+	
+	open (my $cfgfh, ">", $CONFIGFILE) or 
+	    die "Could not open $CONFIGFILE for writing!";
+	print $cfgfh "# sample configuration file for oc2go.pl\n";
+	print $cfgfh "# format: key = value\n";
+	print $cfgfh "# uncomment any setting you want to change.\n\n";
+	print $cfgfh "# these are some parameters for the OKAPI gpx formatter,\n";
+	print $cfgfh "# see http://www.opencaching.de/okapi/services/caches/formatters/gpx.html\n";
+	print $cfgfh "# for a documentation.\n";
+	print $cfgfh "#\n";
+	print $cfgfh "# langpref               = de\n";
+	print $cfgfh "# trackables             = desc:list\n";
+	print $cfgfh "# protectionreas         = desc:text\n";
+	print $cfgfh "# images                 = descrefs:all\n";
+	print $cfgfh "# recommendations        = desc:count\n";
+	print $cfgfh "# location_source        = alt_wpt:user-coords\n";
+	print $cfgfh "# location_change_prefix = (Solved)\n";
+	print $cfgfh "\n\n";
+	print $cfgfh "# If a geocache was downloaded less then 'minage' hours ago,\n";
+	print $cfgfh "# the script will skip the download. Set 'minage = 0' to force a download\n";
+	print $cfgfh "# minage = 24\n";
+
+	print $cfgfh "# default filenames:\n";
+	print $cfgfh "# bookmarkfile           = oc2go_bookmarks.txt\n";
+	print $cfgfh "# zipfile                = oc2go_caches.zip\n";
+
+	close $cfgfh;
+    }
+
+    # try to read any configuration parameters from the config file:
+    open (CONFIGFILE, $CONFIGFILE) or 
+	die "Fatal: could not open " . $CONFIGFILE . "\n" . $!;
+
+    while (<CONFIGFILE>) {
+	chomp;
+	s/#.*//;
+	s/<\s+//;
+	s/\s+$//;
+	next unless length;
+	my ($key, $value) = split(/\s*=\s*/, $_, 2);
+	# print "key = " . $key . "\n";
+	# print "val = " . $value . "\n";
+	$Cfg{$key} = $value;
+    }
+    close (CONFIGFILE);
+    
+    # DBG: print configuration
+    # foreach my $key (keys %Cfg) {
+    # 	print $key . " = " . $Cfg{$key} . "\n";
+    # }
+
+}
+
 sub oc2go_download_caches {
     my @bookmarklist;
     my $occachecode;
 
-    open (BOOKMARKLIST, $bookmarkfile) or 
-	die "Fatal: could not open " . $bookmarkfile . "\n" . $!;
+    my $cnt = 0;
+    my $cnt_skipped = 0;
+
+    print "Input:  " . $Cfg{'bookmarkfile'} . "\n";
+    print "Output: " . $Cfg{'zipfile'} . "\n\n";
+
+    open (BOOKMARKLIST, $Cfg{'bookmarkfile'}) or 
+	die "Fatal: could not open " . $Cfg{'bookmarkfile'} . "\n" . $!;
 
     @bookmarklist = <BOOKMARKLIST>;
 
@@ -105,24 +227,33 @@ sub oc2go_download_caches {
     foreach my $line (@bookmarklist) {
 	next if $line =~ /^#/;    # skip comment lines
 	next if $line =~ /^$/;    # skip empty lines
+
+	print ".";
+	$cnt = $cnt + 1;
+	if ($cnt % 72 == 0) {
+	    print "\n";
+	}
+
 	($occachecode) = ($line =~ /\A(.*?) /);
 
 	my $localfile = $CONFIGDIR . $DIRSEP . 
 	    "wrk" . $DIRSEP . $occachecode . ".gpx";
 
-	# download only, if local cache download is older than 1 day:
+	# download only, if local cache download is older than $Cfg{'minage'} hours:
 	my $now = time;
 	my @stat = stat($localfile);
 
 	if (-r $localfile) {
-	    my $age_in_days = ($now - $stat[9])/86400;
-	    if ($age_in_days < 1.0) {
-		print "skipped $occachecode (last download was less then 24h ago)\n";
+	    my $age_in_hours = ($now - $stat[9])/3600;
+	    if ($age_in_hours < $Cfg{'minage'}) {
+#		print "skipped $occachecode (last download was less then " . 
+#		    $Cfg{'minage'} . " hours ago)\n";
+		$cnt_skipped = $cnt_skipped +1;
 		next;
 	    }
 	}
 
-	print "Trying to download " . $occachecode . "...\n";
+	# print "Trying to download " . $occachecode . "...\n";
 	
 	# download cache:
 	my $occache=$oc2go->download_gpx($occachecode);
@@ -133,16 +264,23 @@ sub oc2go_download_caches {
 	print $fh $occache;
 	close $fh;
 
-	print "done.\n";
+	# print "done.\n";
     
 	# add result to zip file:
-	print "zipping $occachecode...";
-	system ($ZIP . $ZIPARGS . $zipfile . " " . $localfile);
-	print "done.\n";
+	# print "zipping $occachecode...";
+	system ($ZIP . $ZIPARGS . $Cfg{'zipfile'} . " " . $localfile);
+	# print "done.\n";
 
 	# just be nice to the okapi server:
 	sleep 1;
     }
+
+    print "\n\n";
+    print "Done.\n";
+    print $cnt_skipped . " out of " . $cnt . " geocaches were skipped,\n";
+    print "because their last download was less than " . $Cfg{'minage'} . " hours ago.\n";
+    print $cnt - $cnt_skipped . " caches were updated in " . $Cfg{'zipfile'} . "\n\n";
+
 }
 
 sub oc2go_check_authorization {
@@ -154,7 +292,7 @@ sub oc2go_check_authorization {
 
     # Check to see we have a consumer key and secret
     unless ($oc2go->consumer_key && $oc2go->consumer_secret) {
-	die "You must go get a consumer key and secret from opencacing.de\n";
+	die "You must get a consumer key and secret from opencacing.de\n";
     } 
 
     # If the app is authorized (i.e has an access token and secret),
@@ -164,11 +302,11 @@ sub oc2go_check_authorization {
     if (!$oc2go->authorized) {
 	# seems that we are not yet authorized at opencaching.de...
 	print "You have to register at opencaching.de to use this script.\n\n";
-#	print "URL : ".$oc2go->get_authorization_url( callback => 'oob' )."\n\n";
-	print "DBG: " . $oc2go->authorization_url. "\n";
+#	print "DBG: " . $oc2go->authorization_url. "\n";
 	print "URL: " . $oc2go->get_authorization_url( callback => 'oob' )."\n\n";
 	print "Please go to the above URL and authorize using your opencaching.de credentials.\n";
-	print "It will give you a code. Please type it here: ";
+	print "It will give you a numeric code. \n\n";
+	print "Please type it here: ";
 	my $verifier = <STDIN>; print "\n";
 	chomp($verifier); $verifier =~ s!(^\s*|\s*$)!!g;
 	$oc2go->verifier($verifier);
@@ -189,9 +327,7 @@ sub oc2go_check_authorization {
     
     }
     else {
-	print "You are already authorized at opencaching.de to use this script\n";
-	# TODO: print some information about the user,
-	# like 'you are authorized with your opencaching account <alias>'...
+	print "You are authorized at opencaching.de as user " . $oc2go->get_username() . ".\n\n";
     }
 }
 
@@ -244,7 +380,7 @@ sub oc2go_install {
     }
 
     # make sure that config file is readable and writable by user only:
-    chmod("-rw-------", $AUTHCONFIG);
+    chmod 0600, $AUTHCONFIG;
 
 }
 
@@ -317,29 +453,42 @@ sub download_gpx {
 
     $gpx=$self->make_restricted_request("http://www.opencaching.de/okapi/services/caches/formatters/gpx",
 					"GET",
-					'cache_codes'      => $cache_code,
-					'langpref'         => 'de',
-					'ns_ground'        => 'true',
-					'trackables'       => 'desc:list',
-					'protection_areas' => 'desc:text',
-					'images'           => 'descrefs:all',
-					'recommendations'  => 'desc:count',
-					'my_notes'         => 'gc:personal_note',
-					'alt_wpts'         => 'true',
-					'location_source'  => 'alt_wpt:user-coords',
-					'location_change_prefix' => '(Solved) ',
-					'mark_found'       => 'true',
-					'latest_logs'      => 'true');
+					'cache_codes'            => $cache_code,
+					'langpref'               => $Cfg{'langpref'},
+					'ns_ground'              => 'true',
+					'trackables'             => $Cfg{'trackables'},
+					'protection_areas'       => $Cfg{'protection_areas'},
+					'images'                 => $Cfg{'images'},
+					'recommendations'        => $Cfg{'recommendations'},
+					'my_notes'               => 'gc:personal_note',
+					'alt_wpts'               => 'true',
+					'location_source'        => $Cfg{'location_source'},
+					'location_change_prefix' => "$Cfg{'location_change_prefix'} ",
+					'mark_found'             => 'true',
+					'latest_logs'            => 'true');
 
     return $gpx->content;
 }
 
+sub get_username {
+    my $self = shift;
+    my $response;
+    
+    $response=$self->make_restricted_request("http://www.opencaching.de/okapi/services/users/user",
+					     "GET",
+					     'fields' => 'username');
 
-sub _make_restricted_request {
-    my $self     = shift;
-    my $response = $self->make_restricted_request(@_);
-    return $response->content;
+    # This might fail if the username contains characters like ':'... :-(
+    my @foo = $response->content =~ /\{ \"(.*?)\"\:\"(.*?)\" \}/xg;
+
+    return $foo[1];
 }
+
+#sub _make_restricted_request {
+#    my $self     = shift;
+#    my $response = $self->make_restricted_request(@_);
+#    return $response->content;
+#}
 
 
 1;

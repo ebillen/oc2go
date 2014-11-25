@@ -14,7 +14,9 @@ software.
 The script will also download personal notes and personal coordinates for your
 geocaches. If you provide personal coordinates using the opencaching.de web
 interface, the cache will be moved to this coordinates and the text "(solved)"
-will be prepended to the cache name.
+will be prepended to the cache name. However, the original coordinates of the
+geocache are still available as a separate waypoint named
+OCxxxxx-DEFAULT-COORDS.
 
 Also, information about cache attributes, recommendations and geokretys
 contained in the cache will be added to the listing.
@@ -29,7 +31,7 @@ A running perl distribution. The script is tested with perl 5.18 on Linux and
 ActivePerl 5.16.3 on Windows.
 
 The following perl modules should be installed:  
-Crypt::SSLeay (install from you distribution, on Windows use ppm to install)  
+Crypt::SSLeay (install from your distribution, on Windows use ppm to install)  
 Net::OAuth::Simple (use "cpan -i Net::Oauth::Simple" to install)  
 
 Install any other missing perl modules using "cpan -i module-name".
@@ -49,3 +51,14 @@ authentication only once.
 Now run "oc2go.pl -f name_of_your_bookmark_list" to download some cool
 caches from opencaching.de.
 
+Usage:
+------
+Run "oc2go.pl" do download caches. Copy the resulting zip file to your GPSr
+device and enjoy!
+You can change the behaviour of the script as well as some download settings
+in the config file (check the folder ".oc2go" in your home directory for a
+file named "oc2go.cfg").
+
+Tipps:
+------
+* If you get a HTTP 400 error, check your system time and timezone settings.
