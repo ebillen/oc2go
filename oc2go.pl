@@ -9,35 +9,43 @@ use strict;
 use lib qw(lib);
 use File::HomeDir;
 use File::Path;
+use File::Basename;
 use Getopt::Std;
-
+use XML::Twig;
+use Archive::Zip;
 
 # global variables:
 
 my %Cfg;  # to hold settings from config file
-my $VERSION="oc2go version 0.03";
+my $VERSION="oc2go version 0.04";
 my $CONFIGDIR;
 my $AUTHCONFIG;
 my $CONFIGFILE;
 my %tokens=();
 my $oc2go;
 
+# global variables used for parsing gpx XML-structure:
+my $gpx_wpts;      # number of waypoints in current gpx file
+my $gpx_persnote;  # personal cache note in current gpx file
+my $gpx_recommendations; # number of recommendations for this cache
+my $trackables;     # trackables in the cache
+
 # Are we using Windows or a real operating system?
 my $DIRSEP;
-my $ZIP;
-my $ZIPARGS;
+# my $ZIP;
+# my $ZIPARGS;
 
 if ($^O eq "linux") {
     # running on linux...
     $DIRSEP = '/';
-    $ZIP = "zip";
-    $ZIPARGS = " -q -j ";
+#     $ZIP = "zip";
+#     $ZIPARGS = " -q -j ";
 }
 elsif ($^O eq "MSWin32") {
     # running on Windows...
     $DIRSEP = '\\';
-    $ZIP = "7z.exe";
-    $ZIPARGS = " a ";
+#     $ZIP = "7z.exe";
+#     $ZIPARGS = " a ";
 }
 else {
     die "Unsupported operating system ($^O)\n";
@@ -46,6 +54,13 @@ else {
 $CONFIGDIR = File::HomeDir->my_home . $DIRSEP . ".oc2go";
 $AUTHCONFIG = $CONFIGDIR . $DIRSEP . "oc2go_auth.cfg";
 $CONFIGFILE = $CONFIGDIR . $DIRSEP . "oc2go.cfg";
+
+# create $CONFIGDIR, if it does not exist:
+if (!-e $CONFIGDIR) {
+    unless (mkdir $CONFIGDIR)  {
+	die "Fatal: could not create config directory " . $CONFIGDIR;
+    }
+}
 
 # Get configuration for this script.
 # * first, set some default parameters.
@@ -139,6 +154,10 @@ sub oc2go_getconfig {
     $Cfg{'recommendations'}        = 'desc:count';
     $Cfg{'location_source'}        = 'alt_wpt:user-coords';
     $Cfg{'location_change_prefix'} = '(Solved)';
+    $Cfg{'modgpx'}                 = '1';
+    $Cfg{'get_recommendations'}    = '1';
+    $Cfg{'get_trackables'}         = '1';
+    $Cfg{'trace'}                  = 'nothing';
 
     # Minimal age (in hours) for a geocache, befor it will be downloaded again.
     # If the last download is less than 'minage' hours ago, 
@@ -176,7 +195,9 @@ sub oc2go_getconfig {
 	print $cfgfh "# If a geocache was downloaded less then 'minage' hours ago,\n";
 	print $cfgfh "# the script will skip the download. Set 'minage = 0' to force a download\n";
 	print $cfgfh "# minage = 24\n";
-
+	print $cfgfh "# Modify the downloaded gpx file:\n";
+	print $cfgfh "# modgpx = 1\n";
+	
 	print $cfgfh "# default filenames:\n";
 	print $cfgfh "# bookmarkfile           = oc2go_bookmarks.txt\n";
 	print $cfgfh "# zipfile                = oc2go_caches.zip\n";
@@ -201,10 +222,12 @@ sub oc2go_getconfig {
     }
     close (CONFIGFILE);
     
-    # DBG: print configuration
-    # foreach my $key (keys %Cfg) {
-    # 	print $key . " = " . $Cfg{$key} . "\n";
-    # }
+    if ($Cfg{'trace'} =~ 'config') {
+	# print configuration
+	foreach my $key (keys %Cfg) {
+	    print $key . " = " . $Cfg{$key} . "\n";
+	}
+    }
 
 }
 
@@ -218,11 +241,14 @@ sub oc2go_download_caches {
     print "Input:  " . $Cfg{'bookmarkfile'} . "\n";
     print "Output: " . $Cfg{'zipfile'} . "\n\n";
 
+    my $trace = $Cfg{'trace'} =~ 'download';
+
     open (BOOKMARKLIST, $Cfg{'bookmarkfile'}) or 
 	die "Fatal: could not open " . $Cfg{'bookmarkfile'} . "\n" . $!;
 
     @bookmarklist = <BOOKMARKLIST>;
 
+    my $zipfile = Archive::Zip->new();
 
     foreach my $line (@bookmarklist) {
 	next if $line =~ /^#/;    # skip comment lines
@@ -246,14 +272,14 @@ sub oc2go_download_caches {
 	if (-r $localfile) {
 	    my $age_in_hours = ($now - $stat[9])/3600;
 	    if ($age_in_hours < $Cfg{'minage'}) {
-#		print "skipped $occachecode (last download was less then " . 
-#		    $Cfg{'minage'} . " hours ago)\n";
+		print "skipped $occachecode (last download was less then " . 
+		    $Cfg{'minage'} . " hours ago)\n" if ($trace);
 		$cnt_skipped = $cnt_skipped +1;
 		next;
 	    }
 	}
 
-	# print "Trying to download " . $occachecode . "...\n";
+	print "Trying to download " . $occachecode . "...\n" if ($trace);
 	
 	# download cache:
 	my $occache=$oc2go->download_gpx($occachecode);
@@ -264,16 +290,27 @@ sub oc2go_download_caches {
 	print $fh $occache;
 	close $fh;
 
-	# print "done.\n";
+	print "done.\n" if ($trace);
+
+	# do some modifications on the gpx file:
+	if ($Cfg{'modgpx'}) {
+	    print "\ntwigging the gpx file...\n" if ($trace);
+	    parse_and_modify_gpx($occachecode);
+	}
+
     
 	# add result to zip file:
-	# print "zipping $occachecode...";
-	system ($ZIP . $ZIPARGS . $Cfg{'zipfile'} . " " . $localfile);
-	# print "done.\n";
+	print "adding $occachecode to zip..." if ($trace);
+	#system ($ZIP . $ZIPARGS . $Cfg{'zipfile'} . " " . $localfile);
+	$zipfile->addFile($localfile, basename($localfile));
+	print "done.\n" if ($trace);
 
 	# just be nice to the okapi server:
-	sleep 1;
+	# sleep 1;
+	select(undef, undef, undef, 0.25);
     }
+
+    $zipfile->writeToFileNamed($Cfg{'zipfile'});
 
     print "\n\n";
     print "Done.\n";
@@ -397,6 +434,237 @@ sub oc2go_usage {
     print "     print (this) usage information and exit\n";
 }
 
+
+sub parse_and_modify_gpx {
+    my $cache_code = shift;
+
+    my $trace = ($Cfg{'trace'} =~ "gpxparser");
+
+    if ($trace) {
+	print "===================================\n";
+	print "gpx parser is starting on " . $cache_code . "...\n\n";
+    }
+
+    my $gpxinfile = $CONFIGDIR . $DIRSEP . "wrk" . $DIRSEP . $cache_code . ".gpx";
+    my $outfile = $CONFIGDIR . $DIRSEP . "wrk" . $DIRSEP . $cache_code . ".gpx";
+
+    $gpx_wpts = 0;       # number of waypoints in gpx file
+    $gpx_persnote = "";  # personal note
+    $gpx_recommendations = 0; # 
+
+    if ($Cfg{'get_recommendations'}) {
+	$gpx_recommendations = $oc2go->get_recommendations($cache_code);
+    }
+
+    if ($Cfg{'get_trackables'}) {
+	$trackables = $oc2go->get_trackables($cache_code);
+    }
+
+    my $twig = XML::Twig->new(
+	pretty_print => 'indented',
+	twig_handlers => { 
+	    'wpt' => \&gpx_parser_wpt,
+	    'groundspeak:cache' => \&gpx_parser_gscache ,
+	}
+	);
+
+    # parse the gpx file:
+    $twig->parsefile($gpxinfile);
+
+    if ($trace) {
+	print "=== begin personal note ===:\n";
+	print $gpx_persnote . "\n";
+	print "=== end personal note ===\n";
+    }
+
+    # Try to modify the gpx file:
+    my $root = $twig->root;
+
+    # Now, parse the personal note line by line and try
+    # to extract a waypoint information from it.
+    # Anything like 'Waypoint-Name: N/S DD° MM.MMM W/E DDD° MM.MMM'
+    # will create an additional waypoint named 'Waypoint-Name'
+    # in the gpx file.
+
+    # split the personal note into lines:
+    my @pnote = split /\n+/, $gpx_persnote;
+
+    foreach (@pnote) {
+	my $line = $_;
+
+	if ($trace) {    
+	    print "Analyzing: '" . $line . "'...\n";
+	}
+
+	next unless $line =~ /:/;               # ignore all lines without ':'
+
+	my ($wpname, $wpcoordstring) = split /:/, $line;
+	$wpcoordstring =~ s/^ +//g;             # strip leading blanks
+	$wpcoordstring =~ s/°//g;               # remove degree sign
+	$wpcoordstring =~ s/\x{b0}//g;          # remove degree sign
+	$wpcoordstring =~ s/\,/\./g;            # use '.' as decimal separator
+
+	my $buf = $wpcoordstring;
+	$buf =~ s/[0-9,NSWEO \.]//g;
+	if (length($buf) > 0 || length($wpcoordstring) < 20 || length($wpcoordstring) > 26) {
+	    if ($trace) {
+		print "'" . $wpcoordstring . "' does not look like coordinates,\n";
+		print "will ignore this line.\n";
+	    }
+	    next;
+	}
+	
+	if ($trace) {    
+	    print "waypoint name: $wpname\n";
+	    print "(trimmed) waypoint string: '" . $wpcoordstring . "'\n";
+	}
+	my ($lat_ns, $lat_deg, $lat_min, $lon_we, $lon_deg, $lon_min) = split / /, $wpcoordstring;
+	
+	if ($trace) {    
+	    print "lat_ns:  " . $lat_ns . "\n";
+	    print "lat_deg: " . $lat_deg . "\n";
+	    print "lat_min: " . $lat_min . "\n";
+	    print "lon_we:  " . $lon_we . "\n";
+	    print "lon_deg: " . $lon_deg . "\n";
+	    print "lon_min: " . $lon_min . "\n";
+	}    
+	
+	my $lat = $lat_deg + $lat_min/60.0;
+	my $lon = $lon_deg + $lon_min/60.0;
+	if ($lat_ns =~ /S/) { $lat = -$lat; };
+	if ($lon_we =~ /W/) { $lon = -$lon; };
+	
+	# now, add a waypoint element to the gpx:
+	my $wpt =  $root->insert_new_elt('last_child', 
+					 'wpt', {
+					     lat => $lat,
+					     lon => $lon,
+					 });
+	
+	# fill the new waypoint element with some more data.
+	# it's important, that the waypoint name is '<OC-CODE>-<number>',
+	# this will allow Locus Pro to import the new waypoint as a child
+	# waypoint for the cache itself.
+	$wpt->insert_new_elt('last_child', 'name', sprintf('%s-%d', $cache_code, $gpx_wpts));
+	$wpt->insert_new_elt('last_child', 'cmt', 'added by oc2go.pl');
+	$wpt->insert_new_elt('last_child', 'desc', $wpname);
+	# Waypoint types:
+	# * Final Location
+	# * Parking Area
+	# * Virtual Stage
+	# * Reference Point
+	# * Physical Stage
+	# * Trailhead
+	if ($wpname =~ /Fin/ || $wpname =~ /Final Location/) {
+	    print "waypoint type detected: Final Location\n" if ($trace);
+	    $wpt->insert_new_elt('last_child', 'sym', 'Final Location');
+	    $wpt->insert_new_elt('last_child', 'type', 'Waypoint|Final Location');
+	}
+	elsif ($wpname =~ /Park/ || $wpname =~ /park/ || $wpname =~ /Parking Area/) {
+	    print "waypoint type detected: 'Parking Area'\n" if ($trace);
+	    $wpt->insert_new_elt('last_child', 'sym', 'Parking Area');
+	    $wpt->insert_new_elt('last_child', 'type', 'Waypoint|Parking Area');
+	}
+	elsif ($wpname =~ /Virtual Stage/) {
+	    print "waypoint type detected: 'Virtual Stage'\n" if ($trace);
+	    $wpt->insert_new_elt('last_child', 'sym', 'Virtual Stage');
+	    $wpt->insert_new_elt('last_child', 'type', 'Waypoint|Virtual Stage');
+	}
+	elsif ($wpname =~ /Physical Stage/) {
+	    print "waypoint type detected: 'Physical Stage'\n" if ($trace);
+	    $wpt->insert_new_elt('last_child', 'sym', 'Physical Stage');
+	    $wpt->insert_new_elt('last_child', 'type', 'Waypoint|Physical Stage');
+	}
+	elsif ($wpname =~ /Trailhead/) {
+	    print "waypoint type detected: 'Trailhead'\n" if ($trace);
+	    $wpt->insert_new_elt('last_child', 'sym', 'Trailhead');
+	    $wpt->insert_new_elt('last_child', 'type', 'Waypoint|Trailhead');
+	}
+	else {
+	    # default: Reference Point
+	    print "using default waypoint type 'Reference Point'\n" if ($trace);
+	    $wpt->insert_new_elt('last_child', 'sym', 'Reference Point');
+	    $wpt->insert_new_elt('last_child', 'type', 'Waypoint|Reference Point');
+	}
+		
+	$gpx_wpts = $gpx_wpts + 1;
+    }
+    
+    # We're done. Now, write back the full xml structure to the gpx file:
+    if ($trace) {
+	print "writing back the xml structure to " . $outfile . "...\n\n";
+    }
+    $twig->print_to_file($outfile);
+    if ($trace) {
+	print "gpx parser finished.\n";
+	print "===================================\n\n";
+    }
+} # sub parse_and_modify_gpx
+
+###### subroutines needed by the gpx/xml parser: #######
+
+sub gpx_parser_wpt {
+    my ($twig, $wpt) = @_;
+
+    my $trace = ($Cfg{'trace'} =~ "gpxparser");
+
+    if ($trace) {
+	print "parsing element <wpt> #" . $gpx_wpts . "...\n";
+    }
+
+#    my $name = $wpt->first_child('name')->text;
+#    my $gstyp = $wpt->first_child('desc')->text;
+#    my $gsnote = $wpt->first_child('type')->text;
+#    print "Name: " . $name . "\n";
+#    print "Typ:  " . $gsnote . "\n";
+    
+    # count the number of waypoints. This is needed
+    # for the correct naming of the
+    # additional waypoints created
+    # from the personal note.
+    $gpx_wpts = $gpx_wpts+1;
+}
+
+sub gpx_parser_gscache {
+    my ($twig, $wpt) = @_;
+
+    my $trace = ($Cfg{'trace'} =~ "gpxparser");
+
+    if ($trace) {
+	print "parsing element <groundspeak:cache>...\n";
+    }
+
+    if ($wpt->first_child('groundspeak:personal_note')) {
+	$gpx_persnote = $wpt->first_child('groundspeak:personal_note')->text;
+    }
+
+
+    # write FPs to gpx:
+    if ($gpx_recommendations > 0) {
+	$wpt->insert_new_elt('last_child', 
+			     'groundspeak:favorite_points', $gpx_recommendations);
+    }
+
+    # insert travelbugs, if wanted:
+    if ($Cfg{'get_trackables'}) {
+	my $gc_travelbugs =  $wpt->insert_new_elt('last_child', 
+						  'groundspeak:travelbugs');
+	foreach my $item( @$trackables ) { 
+	    my $gc_travelbug = $gc_travelbugs->insert_new_elt('last_child',
+							      'groundspeak:travelbug',
+							      {
+								  'ref' => $item->{code}
+							      });
+	    $gc_travelbug->insert_new_elt('last_child',
+					  'groundspeak:name',
+					  $item->{name});
+	}
+    }
+
+}
+
+
+
 ##############################################################
 
 sub get_tokens {
@@ -483,6 +751,53 @@ sub get_username {
 
     return $foo[1];
 }
+
+sub get_recommendations {
+    my $self = shift;
+    my $occode = shift;
+    my $response;
+
+#    print "trying to get recommendations for '" . $occode . "'...\n";
+    
+    $response=$self->make_restricted_request("http://www.opencaching.de/okapi/services/caches/geocache",
+					     "GET",
+					     'cache_code' => $occode,
+					     'fields' => 'recommendations');
+
+#    print "result of call: " . $response->content . "\n";
+
+    my @foo = $response->content =~ /\{\"(.*?)\"\:(.*?)\}/xg;
+
+#    print "got recommendations for $occode: $foo[1]\n";
+
+    return $foo[1];
+}
+
+sub get_trackables {
+    my $self = shift;
+    my $occode = shift;
+    my $response;
+
+    my $trace = ($Cfg{'trace'} =~ 'trackables');
+
+    print "\ntrying to get trackables for '" . $occode . "'...\n" if ($trace);
+    
+
+    $response=$self->make_restricted_request("http://www.opencaching.de/okapi/services/caches/geocache",
+     					     "GET",
+     					     'cache_code' => $occode,
+     					     'fields' => 'trackables');
+
+    print "result of call: " . $response->content . "\n" if ($trace);
+
+    use JSON;
+
+    my $json = JSON->new->utf8();
+    my $trackables = $json->decode( $response->content );
+
+    return $trackables->{trackables};
+}
+
 
 #sub _make_restricted_request {
 #    my $self     = shift;
