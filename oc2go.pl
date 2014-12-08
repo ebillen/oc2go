@@ -17,7 +17,7 @@ use Archive::Zip;
 # global variables:
 
 my %Cfg;  # to hold settings from config file
-my $VERSION="oc2go version 0.04";
+my $VERSION="oc2go version 0.04a";
 my $CONFIGDIR;
 my $AUTHCONFIG;
 my $CONFIGFILE;
@@ -499,26 +499,19 @@ sub parse_and_modify_gpx {
 	next unless $line =~ /:/;               # ignore all lines without ':'
 
 	my ($wpname, $wpcoordstring) = split /:/, $line;
-	$wpcoordstring =~ s/^ +//g;             # strip leading blanks
-	$wpcoordstring =~ s/°//g;               # remove degree sign
-	$wpcoordstring =~ s/\x{b0}//g;          # remove degree sign
+#	$wpcoordstring =~ s/^ +//g;             # strip leading blanks
+	$wpcoordstring =~ s/°/ /g;               # remove degree sign
+	$wpcoordstring =~ s/\x{b0}/ /g;          # remove degree sign
 	$wpcoordstring =~ s/\,/\./g;            # use '.' as decimal separator
-
-	my $buf = $wpcoordstring;
-	$buf =~ s/[0-9,NSWEO \.]//g;
-	if (length($buf) > 0 || length($wpcoordstring) < 20 || length($wpcoordstring) > 26) {
-	    if ($trace) {
-		print "'" . $wpcoordstring . "' does not look like coordinates,\n";
-		print "will ignore this line.\n";
-	    }
-	    next;
-	}
 	
 	if ($trace) {    
 	    print "waypoint name: $wpname\n";
 	    print "(trimmed) waypoint string: '" . $wpcoordstring . "'\n";
 	}
-	my ($lat_ns, $lat_deg, $lat_min, $lon_we, $lon_deg, $lon_min) = split / /, $wpcoordstring;
+
+	my ($lat_ns, $lat_deg, $lat_min, $lon_we, $lon_deg, $lon_min) = 
+	    ($wpcoordstring =~ /([NS])\s*(\d*)\s*([0-9]*\.?[0-9]*)\s*([EOW])\s*(\d*)\s*([0-9]*\.?[0-9]*).*/);
+
 	
 	if ($trace) {    
 	    print "lat_ns:  " . $lat_ns . "\n";
