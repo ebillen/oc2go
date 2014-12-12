@@ -507,6 +507,7 @@ sub parse_and_modify_gpx {
 	my ($lat_ns, $lat_deg, $lat_min, $lon_we, $lon_deg, $lon_min) = 
 	    ($wpcoordstring =~ /([NS])\s*(\d*)\s*([0-9]*\.?[0-9]*)\s*([EOW])\s*(\d*)\s*([0-9]*\.?[0-9]*).*/);
 
+<<<<<<< HEAD
 	if (!($lat_ns && $lat_deg && $lat_min && $lon_we && $lon_deg && $lon_min)) {
 	    # we did'nt parse anything useful:
 	    if ($trace) {
@@ -514,6 +515,8 @@ sub parse_and_modify_gpx {
 	    }
 	    next;
 	}
+=======
+>>>>>>> 1a40264041faae784459dbfc46445c78f1f6487a
 	
 	if ($trace) {    
 	    print "lat_ns:  " . $lat_ns . "\n";
