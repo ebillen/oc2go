@@ -13,11 +13,12 @@ use File::Basename;
 use Getopt::Std;
 use XML::Twig;
 use Archive::Zip;
+use JSON;
 
 # global variables:
 
 my %Cfg;  # to hold settings from config file
-my $VERSION="oc2go version 0.04";
+my $VERSION="oc2go version 0.04a";
 my $CONFIGDIR;
 my $AUTHCONFIG;
 my $CONFIGFILE;
@@ -32,20 +33,14 @@ my $trackables;     # trackables in the cache
 
 # Are we using Windows or a real operating system?
 my $DIRSEP;
-# my $ZIP;
-# my $ZIPARGS;
 
 if ($^O eq "linux") {
     # running on linux...
     $DIRSEP = '/';
-#     $ZIP = "zip";
-#     $ZIPARGS = " -q -j ";
 }
 elsif ($^O eq "MSWin32") {
     # running on Windows...
     $DIRSEP = '\\';
-#     $ZIP = "7z.exe";
-#     $ZIPARGS = " a ";
 }
 else {
     die "Unsupported operating system ($^O)\n";
@@ -260,7 +255,7 @@ sub oc2go_download_caches {
 	    print "\n";
 	}
 
-	($occachecode) = ($line =~ /\A(.*?) /);
+	($occachecode) = split /[ \s]+/, $line, 2;
 
 	my $localfile = $CONFIGDIR . $DIRSEP . 
 	    "wrk" . $DIRSEP . $occachecode . ".gpx";
@@ -499,26 +494,26 @@ sub parse_and_modify_gpx {
 	next unless $line =~ /:/;               # ignore all lines without ':'
 
 	my ($wpname, $wpcoordstring) = split /:/, $line;
-	$wpcoordstring =~ s/^ +//g;             # strip leading blanks
-	$wpcoordstring =~ s/°//g;               # remove degree sign
-	$wpcoordstring =~ s/\x{b0}//g;          # remove degree sign
+#	$wpcoordstring =~ s/^ +//g;             # strip leading blanks
+	$wpcoordstring =~ s/°/ /g;               # remove degree sign
+	$wpcoordstring =~ s/\x{b0}/ /g;          # remove degree sign
 	$wpcoordstring =~ s/\,/\./g;            # use '.' as decimal separator
-
-	my $buf = $wpcoordstring;
-	$buf =~ s/[0-9,NSWEO \.]//g;
-	if (length($buf) > 0 || length($wpcoordstring) < 20 || length($wpcoordstring) > 26) {
-	    if ($trace) {
-		print "'" . $wpcoordstring . "' does not look like coordinates,\n";
-		print "will ignore this line.\n";
-	    }
-	    next;
-	}
 	
 	if ($trace) {    
 	    print "waypoint name: $wpname\n";
 	    print "(trimmed) waypoint string: '" . $wpcoordstring . "'\n";
 	}
-	my ($lat_ns, $lat_deg, $lat_min, $lon_we, $lon_deg, $lon_min) = split / /, $wpcoordstring;
+
+	my ($lat_ns, $lat_deg, $lat_min, $lon_we, $lon_deg, $lon_min) = 
+	    ($wpcoordstring =~ /([NS])\s*(\d*)\s*([0-9]*\.?[0-9]*)\s*([EOW])\s*(\d*)\s*([0-9]*\.?[0-9]*).*/);
+
+	if (!($lat_ns && $lat_deg && $lat_min && $lon_we && $lon_deg && $lon_min)) {
+	    # we did'nt parse anything useful:
+	    if ($trace) {
+		print "skipped, failed to parse coordinates from $wpcoordstring\n";
+	    }
+	    next;
+	}
 	
 	if ($trace) {    
 	    print "lat_ns:  " . $lat_ns . "\n";
@@ -717,7 +712,10 @@ sub download_gpx {
     my $cache_code = shift;
     my $gpx;
 
-#    print "Cache: ". $cache_code . "\n";
+    my $trace = ($Cfg{'trace'} =~ "gpxdownload");
+
+    print "trying to download cache: '". $cache_code . "'\n"
+	if ($trace);
 
     $gpx=$self->make_restricted_request("http://www.opencaching.de/okapi/services/caches/formatters/gpx",
 					"GET",
@@ -746,10 +744,10 @@ sub get_username {
 					     "GET",
 					     'fields' => 'username');
 
-    # This might fail if the username contains characters like ':'... :-(
-    my @foo = $response->content =~ /\{ \"(.*?)\"\:\"(.*?)\" \}/xg;
+    my $json = JSON->new->utf8();
+    my $username = $json->decode( $response->content );
 
-    return $foo[1];
+    return $username->{username};
 }
 
 sub get_recommendations {
@@ -757,20 +755,15 @@ sub get_recommendations {
     my $occode = shift;
     my $response;
 
-#    print "trying to get recommendations for '" . $occode . "'...\n";
-    
     $response=$self->make_restricted_request("http://www.opencaching.de/okapi/services/caches/geocache",
 					     "GET",
 					     'cache_code' => $occode,
 					     'fields' => 'recommendations');
 
-#    print "result of call: " . $response->content . "\n";
+    my $json = JSON->new->utf8();
+    my $recommendations = $json->decode( $response->content );
 
-    my @foo = $response->content =~ /\{\"(.*?)\"\:(.*?)\}/xg;
-
-#    print "got recommendations for $occode: $foo[1]\n";
-
-    return $foo[1];
+    return $recommendations->{recommendations};
 }
 
 sub get_trackables {
@@ -790,7 +783,7 @@ sub get_trackables {
 
     print "result of call: " . $response->content . "\n" if ($trace);
 
-    use JSON;
+#    use JSON;
 
     my $json = JSON->new->utf8();
     my $trackables = $json->decode( $response->content );
