@@ -30,6 +30,7 @@ my $gpx_wpts;      # number of waypoints in current gpx file
 my $gpx_persnote;  # personal cache note in current gpx file
 my $gpx_recommendations; # number of recommendations for this cache
 my $trackables;     # trackables in the cache
+my $is_oconly;    
 
 # Are we using Windows or a real operating system?
 my $DIRSEP;
@@ -152,6 +153,7 @@ sub oc2go_getconfig {
     $Cfg{'modgpx'}                 = '1';
     $Cfg{'get_recommendations'}    = '1';
     $Cfg{'get_trackables'}         = '1';
+    $Cfg{'mark_oconly'}            = '1';
     $Cfg{'trace'}                  = 'nothing';
 
     # Minimal age (in hours) for a geocache, befor it will be downloaded again.
@@ -446,6 +448,7 @@ sub parse_and_modify_gpx {
     $gpx_wpts = 0;       # number of waypoints in gpx file
     $gpx_persnote = "";  # personal note
     $gpx_recommendations = 0; # 
+    $is_oconly = 0;
 
     if ($Cfg{'get_recommendations'}) {
 	$gpx_recommendations = $oc2go->get_recommendations($cache_code);
@@ -453,6 +456,10 @@ sub parse_and_modify_gpx {
 
     if ($Cfg{'get_trackables'}) {
 	$trackables = $oc2go->get_trackables($cache_code);
+    }
+
+    if ($Cfg{'mark_oconly'}) {
+	$is_oconly = $oc2go->check_oconly($cache_code);
     }
 
     my $twig = XML::Twig->new(
@@ -633,6 +640,9 @@ sub gpx_parser_gscache {
 	$gpx_persnote = $wpt->first_child('groundspeak:personal_note')->text;
     }
 
+    if ($Cfg{'mark_oconly'} && $is_oconly) {
+	$wpt->set_att('memberonly' => 'true');
+    }
 
     # write FPs to gpx:
     if ($gpx_recommendations > 0) {
@@ -783,16 +793,43 @@ sub get_trackables {
 
     print "result of call: " . $response->content . "\n" if ($trace);
 
-#    use JSON;
-
     my $json = JSON->new->utf8();
     my $trackables = $json->decode( $response->content );
 
     return $trackables->{trackables};
 }
 
+sub check_oconly {
+    my $self = shift;
+    my $occode = shift;
+    my $response;
 
-#sub _make_restricted_request {
+    my $is_oconly = 0;
+
+    my $trace = ($Cfg{'trace'} =~ 'oconly');
+
+    print "\ntrying to get oconly status for '" . $occode . "'...\n" if ($trace);
+    
+
+    $response=$self->make_restricted_request("http://www.opencaching.de/okapi/services/caches/geocache",
+     					     "GET",
+     					     'cache_code' => $occode,
+     					     'fields' => 'attr_acodes');
+
+    my $json = JSON->new->utf8();
+    my $attr_acodes = $json->decode( $response->content );
+
+    foreach (@{$attr_acodes->{attr_acodes}}) {
+	if ($_ =~ /^A1$/) {
+	    print $occode . " is oconly\n" if ($trace);
+	    $is_oconly = 1;
+	}
+    }
+
+    return $is_oconly;
+}
+
+#ub _make_restricted_request {
 #    my $self     = shift;
 #    my $response = $self->make_restricted_request(@_);
 #    return $response->content;
