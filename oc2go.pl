@@ -18,7 +18,7 @@ use JSON;
 # global variables:
 
 my %Cfg;  # to hold settings from config file
-my $VERSION="oc2go version 0.04a";
+my $VERSION="oc2go version 0.04b";
 my $CONFIGDIR;
 my $AUTHCONFIG;
 my $CONFIGFILE;
@@ -467,6 +467,7 @@ sub parse_and_modify_gpx {
 	twig_handlers => { 
 	    'wpt' => \&gpx_parser_wpt,
 	    'groundspeak:cache' => \&gpx_parser_gscache ,
+	    'groundspeak:log' => \&gpx_parser_gslog ,
 	}
 	);
 
@@ -610,9 +611,8 @@ sub gpx_parser_wpt {
 
     my $trace = ($Cfg{'trace'} =~ "gpxparser");
 
-    if ($trace) {
-	print "parsing element <wpt> #" . $gpx_wpts . "...\n";
-    }
+    print "parsing element <wpt> #" . $gpx_wpts . "...\n" if $trace;
+
 
 #    my $name = $wpt->first_child('name')->text;
 #    my $gstyp = $wpt->first_child('desc')->text;
@@ -631,11 +631,10 @@ sub gpx_parser_gscache {
     my ($twig, $wpt) = @_;
 
     my $trace = ($Cfg{'trace'} =~ "gpxparser");
-
-    if ($trace) {
-	print "parsing element <groundspeak:cache>...\n";
-    }
-
+    
+    
+    print "parsing element <groundspeak:cache>...\n" if $trace;
+    
     if ($wpt->first_child('groundspeak:personal_note')) {
 	$gpx_persnote = $wpt->first_child('groundspeak:personal_note')->text;
     }
@@ -668,7 +667,44 @@ sub gpx_parser_gscache {
 
 }
 
+sub gpx_parser_gslog {
+    my ($twig, $wpt) = @_;
 
+    # For some reasons, the log types are different when using
+    # the OKAPI gpx formatter service (compared to "download gpx"
+    # from the cache listing.
+    # This method fixes it, so that Locus Map uses the 
+    # correct icons for the log.
+
+    my $trace = ($Cfg{'trace'} =~ "gpxparser");
+
+    print "Parsing groundspeak:log...\n" if $trace;
+
+    my $logtype = $wpt->first_child('groundspeak:type')->text;
+
+    print "Logtype is: " . $logtype . "\n" if $trace;
+
+    if ($logtype =~ /Ready to search/) {
+	print "'Ready to search' corrected to 'Owner Maintenance'\n" if $trace;
+	$wpt->first_child('groundspeak:type')->set_text("Owner Maintenance");
+    }
+
+    if ($logtype =~ /Comment/) {
+	print "'Comment' corrected to 'Write note'\n" if $trace;
+	$wpt->first_child('groundspeak:type')->set_text("Write note");
+    }
+
+    if ($logtype =~ /Temporarily unavailable/) {
+	print "'Temporarily unavailable' corrected to 'Temporarily Disable Listing'\n" if $trace;
+	$wpt->first_child('groundspeak:type')->set_text("Temporarily Disable Listing");
+    }
+
+    if ($logtype =~ /Archived/) {
+	print "'Archived' corrected to 'Archive'\n" if $trace;
+	$wpt->first_child('groundspeak:type')->set_text("Archive");
+    }
+
+}
 
 ##############################################################
 
