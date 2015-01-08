@@ -3,6 +3,7 @@
 use strict;
 use LWP::UserAgent;
 use JSON;
+use DateTime::Format::ISO8601;
 
 # ===========================================
 # Hier Username bei opencaching.de eintragen:
@@ -14,10 +15,16 @@ my $oc_user = "hier_usernamen_eintragen";
 my $oc_consumer_key = "hier_consumer_key_eintragen";
 #
 #
-my $separator = ", ";
-my $quote = "'";
+# Trennzeichen zwischen den Feldern in der csv-Datei:
+# Default: \t = Tab-Zeichen
+my $separator = "\t"; 
+# Zeichen, mit dem die Felder "geklammert" werden, z.B.
+# Anfuerungszeichen. Default: leer.
+my $quote = "";
 #
 #
+# Name der Ausgabedatei. Beim Import in die 
+# Tabellenkalkulation sollte als Zeichensatz "UTF8" gewaehlt werden.
 my $filename = "oc_stat.csv";
 #
 #
@@ -27,6 +34,8 @@ my $okapi_url = "http://www.opencaching.de/okapi";
 
 my $fh;
 open($fh, ">", $filename) or die "Could not open $filename for writing!";
+
+binmode($fh, ":utf8");
 
 # los geht's:
 my $ua = LWP::UserAgent->new();
@@ -75,8 +84,11 @@ while ($more) {
 	    $n_logs += 1;
 	    my $log = $_;
 
+	    my $dt = DateTime::Format::ISO8601->parse_datetime($log->{date});
+	    
 	    print $fh $quote . $log->{cache_code} . $quote . $separator;
-	    print $fh $quote . $log->{date} . $quote . $separator;
+	    print $fh $quote . $dt->ymd . $quote . $separator;
+	    print $fh $quote . $dt->hms . $quote . $separator;
 	    print $fh $quote . $log->{type} . $quote . $separator;
 
 
