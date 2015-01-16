@@ -4,6 +4,7 @@ use strict;
 use LWP::UserAgent;
 use JSON;
 use DateTime::Format::ISO8601;
+use utf8;
 
 # ===========================================
 # Hier Username bei opencaching.de eintragen:
