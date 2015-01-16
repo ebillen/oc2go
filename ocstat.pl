@@ -59,7 +59,7 @@ if ($resp->is_success) {
     print "User-ID:  $uuid\n";
 }
 else {
-    my $error = $json->downgrade($resp->decoded_content, my $fail);
+    my $error = $json->decode($resp->decoded_content);
 
     print "Username:     " . $oc_user . "\n\n";
     
