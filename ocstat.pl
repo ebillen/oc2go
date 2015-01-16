@@ -16,19 +16,19 @@ my $oc_consumer_key = "hier_consumer_key_eintragen";
 #
 #
 # Trennzeichen zwischen den Feldern in der csv-Datei:
-# Default: \t = Tab-Zeichen
+# \t = Tab-Zeichen
 my $separator = "\t"; 
 # Zeichen, mit dem die Felder "geklammert" werden, z.B.
 # Anfuerungszeichen. Default: leer.
 my $quote = "";
 #
 #
-# Name der Ausgabedatei. Beim Import in die 
-# Tabellenkalkulation sollte als Zeichensatz "UTF8" gewaehlt werden.
 my $filename = "oc_stat.csv";
 #
 #
 # ===========================================
+
+utf8::encode($oc_user);
 
 my $okapi_url = "http://www.opencaching.de/okapi";
 
@@ -55,10 +55,19 @@ if ($resp->is_success) {
 
     $uuid = $data->{uuid};
 
-    print "Username: $oc_user\n";
+    print "Username: " . $oc_user . "\n";
     print "User-ID:  $uuid\n";
 }
 else {
+    my $error = $json->downgrade($resp->decoded_content, my $fail);
+
+    print "Username:     " . $oc_user . "\n\n";
+    
+    print "Error:        " . $error->{error}->{status} . "\n";
+    print "Parameter:    " . $error->{error}->{parameter} . "\n";
+    print "What's wrong: " . $error->{error}->{whats_wrong_about_it} . "\n";
+    print "Dev.-Message: " . $error->{error}->{developer_message} . "\n";
+
     die $resp->status_line;
 }
 
