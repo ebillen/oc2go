@@ -14,11 +14,12 @@ use Getopt::Std;
 use XML::Twig;
 use Archive::Zip;
 use JSON;
+use DateTime::Format::ISO8601;
 
 # global variables:
 
 my %Cfg;  # to hold settings from config file
-my $VERSION="oc2go version 0.04b";
+my $VERSION="oc2go version 0.05";
 my $CONFIGDIR;
 my $AUTHCONFIG;
 my $CONFIGFILE;
@@ -85,7 +86,7 @@ print "This is " . $VERSION . "\n\n";
 
 # parse command line options:
 my %options=();
-getopts("hiaf:", \%options);
+getopts("hiaf:s:", \%options);
 
 if (defined $options{h}) {
     # print usage information and exit
@@ -113,14 +114,22 @@ if (defined $options{f}) {
 #    print "using " . $Cfg{'bookmarkfile'} . " for input...\n";
 }
 
-
-# ok, here we go...
 # first, make sure that we are authorized:
 oc2go_check_authorization();
 
-# Ok, we should be authorized here.
-# time to download some cool caches from opencaching.de...
-oc2go_download_caches();
+if (defined $options{s}) {
+    # download list of found caches as CSV
+
+    $Cfg{'foundlistfile'} = $options{s};
+
+    oc2go_download_foundlist();
+}
+else {
+    # download bookmark list...
+
+    # time to download some cool caches from opencaching.de...
+    oc2go_download_caches();
+}
 
 # that's it.
 # bye...
@@ -226,6 +235,140 @@ sub oc2go_getconfig {
 	}
     }
 
+}
+
+sub oc2go_download_foundlist {
+    my $okapi_url = "http://www.opencaching.de/okapi";
+
+    my $filename = $Cfg{'foundlistfile'}; # name of output file (*.csv format)
+    my $fh;                               # file handler
+
+    my $ua = LWP::UserAgent->new();       
+    my $json = JSON->new->utf8();
+    my $resp;
+    my $oc_consumer_key = $oc2go->consumer_key();
+    my $oc_user = $oc2go->get_username();
+
+    my $trace = $Cfg{'trace'} =~ 'foundlist';
+
+    print "Downloading list of found caches to " . $filename . "\n";
+
+    open($fh, ">", $filename) or die "Could not open $filename for writing!";
+    binmode($fh, ":utf8");
+
+    print "Opened " . $filename . " for writing...\n" if $trace;
+
+    # get User ID at opencaching.de:
+    my $uuid;
+
+    print "Requesting UUID for user...\n"              if $trace;
+    print "  User name:    " . $oc_user         . "\n" if $trace;
+    print "  Consumer key: " . $oc_consumer_key . "\n" if $trace;
+
+    $resp = $ua->get($okapi_url . 
+		     "/services/users/by_username?" .
+		     "username=$oc_user&" .
+		     "fields=uuid&" .
+		     "consumer_key=$oc_consumer_key");
+
+    if ($resp->is_success) {
+	my $data = $json->decode($resp->decoded_content);
+
+	$uuid = $data->{uuid};
+	
+	print "  User-ID:      " . $uuid . "\n" if $trace;
+	print "Requesting user ID finished.\n"  if $trace;
+    }
+    else {
+	my $error = $json->decode($resp->decoded_content);
+	
+	print "Username:     " . $oc_user . "\n\n";
+    
+	print "Error:        " . $error->{error}->{status} . "\n";
+	print "Parameter:    " . $error->{error}->{parameter} . "\n";
+	print "What's wrong: " . $error->{error}->{whats_wrong_about_it} . "\n";
+	print "Dev.-Message: " . $error->{error}->{developer_message} . "\n";
+
+	die $resp->status_line;
+    }
+
+    # download the logs for this user:
+    my $more = 1;
+    my $limit = 10;
+    my $offset = 0;
+
+
+    #
+    # Trennzeichen zwischen den Feldern in der csv-Datei:
+    # \t = Tab-Zeichen
+    my $separator = "\t";  
+    # Zeichen, mit dem die Felder "geklammert" werden, z.B.
+    # Anfuerungszeichen. Default: leer.
+    my $quote = "";
+
+    while ($more) {
+	my $n_logs = 0;
+    
+	$resp = $ua->get($okapi_url . 
+			 "/services/logs/userlogs?" .
+			 "user_uuid=$uuid&" .
+			 "limit=$limit&" .
+			 "offset=$offset&" .
+			 "consumer_key=$oc_consumer_key");
+
+	if ($resp->is_success) {
+	    my $data = $json->decode($resp->decoded_content);
+	    my $occode = "";
+
+	    foreach (@{$data}) {
+		$n_logs += 1;
+		my $log = $_;
+
+		my $dt = DateTime::Format::ISO8601->parse_datetime($log->{date});
+	    
+		print $fh $quote . $log->{cache_code} . $quote . $separator;
+		print $fh $quote . $dt->ymd           . $quote . $separator;
+		print $fh $quote . $dt->hms           . $quote . $separator;
+		print $fh $quote . $log->{type}       . $quote . $separator;
+
+
+		# $log enthaelt Cache-Code, Datum und Logtyp.
+		# Name und Besitzer muessen wir noch holen:
+	
+		$resp = $ua->get($okapi_url . 
+				 "/services/caches/geocache?" .
+				 "cache_code=" . $log->{cache_code} . "&" .
+				 "user_uuid=$uuid&" .
+				 "fields=name|owner&" .
+				 "consumer_key=$oc_consumer_key");
+		if ($resp->is_success) {
+		    my $data2 = $json->decode($resp->decoded_content);
+		    print $fh $quote . $data2->{name} . $quote . $separator;
+		    print $fh $quote . $data2->{owner}->{username} . $quote;
+		}
+		else {
+		    die $resp->status_line;
+		}  
+		print $fh "\n";
+	    }
+
+	    if ($n_logs < $limit) {
+		$more = 0;
+	    }
+	    else {
+		$more = 1;
+	    }
+
+	    $offset = $offset + $limit;
+
+	    print "Logs downloaded: $offset...\n";
+	}
+	else {
+	    die $resp->status_line;
+	}
+    }
+    
+    close $fh;
 }
 
 sub oc2go_download_caches {
@@ -425,6 +568,8 @@ sub oc2go_usage {
     print "Options:\n";
     print "  -f FILE\n";
     print "     use FILE as input for bookmarked caches\n";
+    print "  -s FILE\n";
+    print "     download list of found caches and save it to FILE (*.csv format)\n";
     print "  -i\n";
     print "     create directories and config file (if needed)\n";
     print "  -h\n";
@@ -745,6 +890,11 @@ sub new {
 	    access_token_url  => 'http://www.opencaching.de/okapi/services/oauth/access_token',
 	});
 }
+
+#sub get_consumer_key {
+#    my $self = shift;
+#    return $tokens{'consumer_key'};
+#}
 
 sub view_restricted_resource {
     my $self = shift;
