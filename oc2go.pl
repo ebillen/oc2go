@@ -377,6 +377,7 @@ sub oc2go_download_caches {
 
     my $cnt = 0;
     my $cnt_skipped = 0;
+    my $cnt_invalid = 0;
 
     print "Input:  " . $Cfg{'bookmarkfile'} . "\n";
     print "Output: " . $Cfg{'zipfile'} . "\n\n";
@@ -394,12 +395,6 @@ sub oc2go_download_caches {
 	next if $line =~ /^#/;    # skip comment lines
 	next if $line =~ /^$/;    # skip empty lines
 
-	print ".";
-	$cnt = $cnt + 1;
-	if ($cnt % 72 == 0) {
-	    print "\n";
-	}
-
 	($occachecode) = split /[ \s]+/, $line, 2;
 
 	my $localfile = $CONFIGDIR . $DIRSEP . 
@@ -415,6 +410,14 @@ sub oc2go_download_caches {
 		print "skipped $occachecode (last download was less then " . 
 		    $Cfg{'minage'} . " hours ago)\n" if ($trace);
 		$cnt_skipped = $cnt_skipped +1;
+
+		print "-";
+		$cnt = $cnt + 1;
+		if ($cnt % 72 == 0) {
+		    print "\n";
+		}
+
+
 		next;
 	    }
 	}
@@ -423,6 +426,31 @@ sub oc2go_download_caches {
 	
 	# download cache:
 	my $occache=$oc2go->download_gpx($occachecode);
+
+	# check for a valid gpx file.
+	# if the cache is archived, the gpx file does not contain
+	# any "<wpt>" tags:
+	if ($occache =~ /\<wpt/) {
+	    print "Downloaded a valid gpx...\n" if ($trace);
+	    print ".";
+	    $cnt = $cnt + 1;
+	    if ($cnt % 72 == 0) {
+		print "\n";
+	    }
+	}
+	else {
+	    print "gpx is not valid...\n" if ($trace);
+	    print "x";
+	    $cnt = $cnt + 1;
+	    if ($cnt % 72 == 0) {
+		print "\n";
+	    }
+
+	    $cnt_invalid = $cnt_invalid + 1;
+
+	    next;
+	}
+	
 
 	# write cache to file:
 	open(my $fh, ">", $localfile) or
@@ -453,10 +481,12 @@ sub oc2go_download_caches {
     $zipfile->writeToFileNamed($Cfg{'zipfile'});
 
     print "\n\n";
-    print "Done.\n";
+    print "Done.\n\n";
     print $cnt_skipped . " out of " . $cnt . " geocaches were skipped,\n";
-    print "because their last download was less than " . $Cfg{'minage'} . " hours ago.\n";
-    print $cnt - $cnt_skipped . " caches were updated in " . $Cfg{'zipfile'} . "\n\n";
+    print "because their last download was less than " . $Cfg{'minage'} . " hours ago.\n\n";
+    print $cnt_invalid . " out of " . $cnt . " geocaches were skipped,\n";
+    print "because the cache is invalid or archived.\n\n";
+    print $cnt - $cnt_skipped - $cnt_invalid . " caches were updated in " . $Cfg{'zipfile'} . "\n\n";
 
 }
 
